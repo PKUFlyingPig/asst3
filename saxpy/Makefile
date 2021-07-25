@@ -22,7 +22,7 @@ else
 LDFLAGS=-L/usr/local/cuda/lib64/ -lcudart
 endif
 NVCC=nvcc
-NVCCFLAGS=--std=c++11 -O3 -m64 --gpu-architecture compute_35
+NVCCFLAGS=--std=c++11 -O3 -m64 -arch=sm_80
 
 
 OBJS=$(OBJDIR)/main.o  $(OBJDIR)/saxpy.o
