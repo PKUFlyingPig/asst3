@@ -8,7 +8,7 @@
 
 
 // return GB/sec
-float GBPerSec(int bytes, float sec) {
+float GBPerSec(unsigned long long bytes, float sec) {
   return static_cast<float>(bytes) / (1024. * 1024. * 1024.) / sec;
 }
 
@@ -41,7 +41,7 @@ saxpy_kernel(int N, float alpha, float* x, float* y, float* result) {
 void saxpyCuda(int N, float alpha, float* xarray, float* yarray, float* resultarray) {
     // must read both input arrays (xarray and yarray) and write to
     // output array (resultarray)
-    int totalBytes = sizeof(float) * 3 * N;
+    unsigned long long totalBytes = sizeof(float) * 3 * N;
 
     // compute number of blocks and threads per block.  In this
     // application we've hardcoded thread blocks to contain 512 CUDA
