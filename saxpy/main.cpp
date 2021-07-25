@@ -5,6 +5,15 @@
 
 void saxpyCuda(int N, float alpha, float* x, float* y, float* result);
 void printCudaInfo();
+bool check(int N, float alpha, float* xarray, float* yarray, float* resultarray) {
+      for (int i = 0; i < N; i++) {
+          float expected = xarray[i] * alpha + yarray[i];
+          if (abs(resultarray[i] - expected) > 1e-5) {
+              return false;
+          }
+      }
+      return true;
+}
 
 
 void usage(const char* progname) {
@@ -60,7 +69,12 @@ int main(int argc, char** argv)
     for (int i=0; i<3; i++) {
     printf("N : %d\n", N);
       saxpyCuda(N, alpha, xarray, yarray, resultarray);
-    }
+      if (check(N, alpha, xarray, yarray, resultarray)) {
+        printf("passed!\n");
+      } else {
+        printf("wrong answer!\n");
+      }
+   }
 
     delete [] xarray;
     delete [] yarray;
