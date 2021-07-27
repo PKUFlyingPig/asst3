@@ -27,6 +27,28 @@ static inline int nextPow2(int n) {
     return n;
 }
 
+__global__
+void down_sweep(int * array, int offset) {
+    int thid = threadIdx.x;
+    int ai = offset * (2 * thid + 1) - 1;
+    int bi = offset * (2 * thid + 2) - 1;
+    int t = array[ai];
+    array[ai] = array[bi];
+    array[bi] += t;
+}
+
+__global__ 
+void up_sweep(int * array, int offset) {
+    int thid = threadIdx.x;
+    int ai = offset * (2 * thid + 1) - 1;
+    int bi = offset * (2 * thid + 2) - 1;
+    array[bi] += array[ai];
+}
+
+__global__ 
+void clear_last(int * array, int N) {
+    array[N - 1] = 0;
+}
 // exclusive_scan --
 //
 // Implementation of an exclusive scan on global memory array `input`,
@@ -53,8 +75,49 @@ void exclusive_scan(int* input, int N, int* result)
     // on the CPU.  Your implementation will need to make multiple calls
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
+    const int blockSize = 512;
+    int block_offset = blockSize * 2;
 
+    // up sweep
+    int offset = 1;
+    int d = N / 2;
+    while (d > blockSize) {
+        int iterations = d / blockSize;
+        for (int i = 0; i < iterations; i++) {
+            up_sweep<<<1, blockSize>>>(result + i * block_offset, offset);
+        }
+        //printf("d %d, bo %d\n", d, block_offset);
+        block_offset *= 2;
+        offset *= 2;
+        d /= 2;
+    }
+    while (d > 0) {
+        up_sweep<<<1, d>>>(result, offset);
+        offset *= 2;
+        d /= 2;
+    }
 
+    // clear the last element
+    clear_last<<<1, 1>>>(result, N);
+
+    // down sweep
+    d = 1;
+    //printf("d %d, offset %d\n", d, offset);
+    while (d <= blockSize) {
+        offset /= 2;
+        down_sweep<<<1, d>>>(result, offset);
+        d *= 2;
+    }
+    while (d < N) {
+        //printf("d %d, bo %d\n", d, block_offset);
+        block_offset /= 2; 
+        offset /= 2;
+        int iterations = d / blockSize;
+        for (int i = 0; i < iterations; i++) {
+            down_sweep<<<1, blockSize>>>(result + i * block_offset, offset);
+        }
+        d *= 2;
+    }
 }
 
 
@@ -69,7 +132,6 @@ double cudaScan(int* inarray, int* end, int* resultarray)
 {
     int* device_result;
     int* device_input;
-    int N = end - inarray;  
 
     // This code rounds the arrays provided to exclusive_scan up
     // to a power of 2, but elements after the end of the original
@@ -90,12 +152,12 @@ double cudaScan(int* inarray, int* end, int* resultarray)
     // students are free to implement an in-place scan on the result
     // vector if desired.  If you do this, you will need to keep this
     // in mind when calling exclusive_scan from find_repeats.
-    cudaMemcpy(device_input, inarray, (end - inarray) * sizeof(int), cudaMemcpyHostToDevice);
+    //cudaMemcpy(device_input, inarray, (end - inarray) * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(device_result, inarray, (end - inarray) * sizeof(int), cudaMemcpyHostToDevice);
 
     double startTime = CycleTimer::currentSeconds();
 
-    exclusive_scan(device_input, N, device_result);
+    exclusive_scan(device_input, rounded_length, device_result);
 
     // Wait for completion
     cudaDeviceSynchronize();
@@ -103,6 +165,11 @@ double cudaScan(int* inarray, int* end, int* resultarray)
        
     cudaMemcpy(resultarray, device_result, (end - inarray) * sizeof(int), cudaMemcpyDeviceToHost);
 
+    // for (int i = 0; i < rounded_length; i++) {
+    //     printf("%d ", resultarray[i]);
+    // }
+    cudaFree(device_result);
+    cudaFree(device_input);
     double overallDuration = endTime - startTime;
     return overallDuration; 
 }
