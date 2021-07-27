@@ -29,7 +29,7 @@ static inline int nextPow2(int n) {
 
 __global__
 void down_sweep(int * array, int offset) {
-    int thid = threadIdx.x;
+    int thid = threadIdx.x + blockDim.x * blockIdx.x;
     int ai = offset * (2 * thid + 1) - 1;
     int bi = offset * (2 * thid + 2) - 1;
     int t = array[ai];
@@ -39,7 +39,7 @@ void down_sweep(int * array, int offset) {
 
 __global__ 
 void up_sweep(int * array, int offset) {
-    int thid = threadIdx.x;
+    int thid = threadIdx.x + blockDim.x * blockIdx.x;
     int ai = offset * (2 * thid + 1) - 1;
     int bi = offset * (2 * thid + 2) - 1;
     array[bi] += array[ai];
@@ -76,18 +76,13 @@ void exclusive_scan(int* input, int N, int* result)
     // to CUDA kernel functions (that you must write) to implement the
     // scan.
     const int blockSize = 512;
-    int block_offset = blockSize * 2;
 
     // up sweep
     int offset = 1;
     int d = N / 2;
     while (d > blockSize) {
-        int iterations = d / blockSize;
-        for (int i = 0; i < iterations; i++) {
-            up_sweep<<<1, blockSize>>>(result + i * block_offset, offset);
-        }
-        //printf("d %d, bo %d\n", d, block_offset);
-        block_offset *= 2;
+        int gridSize = d / blockSize;
+        up_sweep<<<gridSize, blockSize>>>(result, offset);
         offset *= 2;
         d /= 2;
     }
@@ -102,20 +97,15 @@ void exclusive_scan(int* input, int N, int* result)
 
     // down sweep
     d = 1;
-    //printf("d %d, offset %d\n", d, offset);
     while (d <= blockSize) {
         offset /= 2;
         down_sweep<<<1, d>>>(result, offset);
         d *= 2;
     }
     while (d < N) {
-        //printf("d %d, bo %d\n", d, block_offset);
-        block_offset /= 2; 
         offset /= 2;
-        int iterations = d / blockSize;
-        for (int i = 0; i < iterations; i++) {
-            down_sweep<<<1, blockSize>>>(result + i * block_offset, offset);
-        }
+        int gridSize = d / blockSize;
+        down_sweep<<<gridSize, blockSize>>>(result, offset);
         d *= 2;
     }
 }
