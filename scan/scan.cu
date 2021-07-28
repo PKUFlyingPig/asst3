@@ -197,14 +197,38 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
     return overallDuration; 
 }
 
+__global__
+void consecutive_cmp(int *input, int *output, int length) {
+    int thid = threadIdx.x + blockDim.x * blockIdx.x;
+    if (thid < length - 1) {
+        output[thid] = input[thid] == input[thid + 1] ? 1 : 0;
+    }
+}
 
+__global__
+void consecutive_sub(int *input, int *output, int length) {
+    int thid = threadIdx.x + blockDim.x * blockIdx.x;
+    if (thid < length - 1) {
+        output[thid] = input[thid + 1] - input[thid];
+    }
+}
+
+__global__
+void collect_repeats(int *prefix_sum, int *repeats_indicate, int *output, int length) {
+    int thid = threadIdx.x + blockDim.x * blockIdx.x;
+    if (thid < length - 1) {
+        if (repeats_indicate[thid] == 1) {
+            output[prefix_sum[thid]] = thid;
+        }
+    }
+}
 // find_repeats --
 //
 // Given an array of integers `device_input`, returns an array of all
 // indices `i` for which `device_input[i] == device_input[i+1]`.
 //
 // Returns the total number of pairs found
-int find_repeats(int* device_input, int length, int* device_output) {
+int find_repeats(int* device_input, int length, int* device_output, int* temp) {
 
     // CS149 TODO:
     //
@@ -217,8 +241,23 @@ int find_repeats(int* device_input, int length, int* device_output) {
     // exclusive_scan function with them. However, your implementation
     // must ensure that the results of find_repeats are correct given
     // the actual array length.
-
-    return 0; 
+    int blockSize = 512;
+    int rounded_length = nextPow2(length);
+    if (length <= blockSize) {
+        consecutive_cmp<<<1, length - 1>>>(device_input, temp, length);
+        exclusive_scan(temp, rounded_length, temp);
+        consecutive_sub<<<1, length - 1>>>(temp, device_input, length);
+        collect_repeats<<<1, length - 1>>>(temp, device_input, device_output, length);
+    } else {
+        int gridSize = (length + blockSize - 1) / blockSize;
+        consecutive_cmp<<<gridSize, blockSize>>>(device_input, temp, length);
+        exclusive_scan(temp, rounded_length, temp);
+        consecutive_sub<<<gridSize, blockSize>>>(temp, device_input, length);
+        collect_repeats<<<gridSize, blockSize>>>(temp, device_input, device_output, length);
+    }
+    int * repeats_num = new int;
+    cudaMemcpy(repeats_num, temp + length - 1, sizeof(int), cudaMemcpyDeviceToHost);    
+    return *repeats_num; 
 }
 
 
@@ -230,16 +269,28 @@ double cudaFindRepeats(int *input, int length, int *output, int *output_length) 
 
     int *device_input;
     int *device_output;
+    int *temp;
     int rounded_length = nextPow2(length);
-    
+    // input[0] = 1;
+    // input[1] = 2;
+    // input[2] = 3;
+    // input[3] = 4;
+    // input[4] = 5;
+    // input[5] = 5;
+    // input[6] = 6;
+    // input[7] = 6;
+    // input[8] = 7;
+    // input[9] = 8;
     cudaMalloc((void **)&device_input, rounded_length * sizeof(int));
     cudaMalloc((void **)&device_output, rounded_length * sizeof(int));
+    cudaMalloc((void **)&temp, rounded_length * sizeof(int));
     cudaMemcpy(device_input, input, length * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_output, input, length * sizeof(int), cudaMemcpyHostToDevice);
 
     cudaDeviceSynchronize();
     double startTime = CycleTimer::currentSeconds();
     
-    int result = find_repeats(device_input, length, device_output);
+    int result = find_repeats(device_input, length, device_output, temp);
 
     cudaDeviceSynchronize();
     double endTime = CycleTimer::currentSeconds();
@@ -247,9 +298,14 @@ double cudaFindRepeats(int *input, int length, int *output, int *output_length) 
     // set output count and results array
     *output_length = result;
     cudaMemcpy(output, device_output, length * sizeof(int), cudaMemcpyDeviceToHost);
+    // for (int i = 0; i < length; i++) {
+    //     printf("output[%d] = %d\n", i, output[i]);
+    // }
+    // printf("\n");
 
     cudaFree(device_input);
     cudaFree(device_output);
+    cudaFree(temp);
 
     float duration = endTime - startTime; 
     return duration;
